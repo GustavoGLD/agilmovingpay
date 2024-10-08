@@ -1,0 +1,8 @@
+[ui]
+hideTopBar = true
+
+[theme]
+base="dark"
+
+[server]
+port=8061
