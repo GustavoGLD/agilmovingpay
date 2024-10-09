@@ -1,6 +1,3 @@
-"""
-$I$COF#2021
-"""
 import copy
 from abc import abstractmethod, ABC
 from typing import Union, TypedDict
