@@ -3,7 +3,6 @@ import toml
 import os
 import streamlit_authenticator as stauth
 from sqlalchemy import create_engine
-from streamlit_authenticator import Authenticate
 
 st.set_page_config(page_title="Portal do Administrador", page_icon="🛠️", layout="wide")
 
@@ -68,6 +67,33 @@ def list_users(file_path):
     return list(data['credentials']['usernames'].keys())
 
 
+# Função para adicionar admin
+def add_admin(username, password, file_path):
+    try:
+        data = load_credentials(file_path)
+        if username in data['admins']:
+            return "Admin já existe. ❌"
+        data['admins'][username] = {'name': username, 'password': str(stauth.Hasher([password]).generate()[0])}
+        save_credentials(file_path, data)
+        return "Admin adicionado com sucesso! 🎉"
+    except Exception as e:
+        return f"Erro ao adicionar admin: {e}"
+
+
+# Função para remover admin
+def remove_admin(username, file_path):
+    try:
+        data = load_credentials(file_path)
+        if username in data['admins']:
+            del data['admins'][username]
+            save_credentials(file_path, data)
+            return "Admin removido com sucesso! 🗑️"
+        else:
+            return "Admin não encontrado. ❌"
+    except Exception as e:
+        return f"Erro ao remover admin: {e}"
+
+
 # Função para atualizar configurações do banco de dados
 def update_database_config(file_path, schema, servername, odbc_driver):
     try:
@@ -96,7 +122,7 @@ def test_connection(url):
         return f"Erro ao conectar ao banco de dados: {e}"
 
 
-def main():
+def main(username):
     # Interface do Streamlit
     st.title("Portal do Administrador 🛠️")
 
@@ -105,7 +131,6 @@ def main():
     project_folder = st.text_input("Digite o caminho da pasta do projeto:", value=project_folder)
     file_path = os.path.join(project_folder, '.streamlit', 'secrets.toml')
     save_project_path(project_folder)
-
 
     if project_folder:
         st.write(f"Arquivo de credenciais localizado em: {file_path}")
@@ -128,12 +153,12 @@ def main():
         with tab1:
             st.header("Adicionar Usuário ➕")
             with st.form(key='add_user_form'):
-                username = st.text_input("Nome de usuário:")
+                username_input = st.text_input("Nome de usuário:")
                 password = st.text_input("Senha:", type="password")
                 add_button = st.form_submit_button("Adicionar Usuário")
                 if add_button:
-                    if username and password:
-                        result = add_user(username, password, file_path)
+                    if username_input and password:
+                        result = add_user(username_input, password, file_path)
                         if 'sucesso' in result:
                             st.success(result)
                         else:
@@ -164,6 +189,44 @@ def main():
                 else:
                     st.info("Nenhum usuário encontrado.")
 
+            # Adicionar/Remover Admin somente para super-admin
+            if username == 'super-admin':
+                st.header("Gerenciar Administradores 🔑")
+
+                # Adicionar Admin
+                with st.form(key='add_admin_form'):
+                    admin_username = st.text_input("Nome do Admin:")
+                    admin_password = st.text_input("Senha do Admin:", type="password")
+                    add_admin_button = st.form_submit_button("Adicionar Admin")
+                    if add_admin_button:
+                        if admin_username and admin_password:
+                            result = add_admin(admin_username, admin_password, file_path)
+                            if 'sucesso' in result:
+                                st.success(result)
+                            else:
+                                st.error(result)
+                        else:
+                            st.error("Por favor, preencha todos os campos.")
+
+                # Remover Admin
+                st.header("Remover Admin")
+                admins = data.get('admins', {})
+                if admins:
+                    with st.form(key='remove_admin_form'):
+                        remove_admin_username = st.selectbox("Selecione o admin para remover:", admins.keys())
+                        remove_admin_button = st.form_submit_button("Remover Admin")
+                        if remove_admin_button:
+                            if remove_admin_username:
+                                result = remove_admin(remove_admin_username, file_path)
+                                if "sucesso" in result:
+                                    st.success(result)
+                                else:
+                                    st.error(result)
+                            else:
+                                st.error("Por favor, selecione um admin.")
+                else:
+                    st.info("Nenhum admin encontrado.")
+
         # Aba para opções do banco de dados
         with tab2:
             st.header("Configurações do Banco de Dados 💾")
@@ -183,40 +246,35 @@ def main():
                         st.error("Por favor, preencha todos os campos.")
 
             # Mostrar a URL gerada
-            st.header("URL de Conexão 🌐")
             connection_url = generate_connection_url(schema, servername, odbc_driver)
-            st.write("URL de Conexão Gerada:")
-            st.code(connection_url, language="python")
+            st.write(f"URL de Conexão: {connection_url}")
 
-            # Botão para testar a conexão
-            test_connection_button = st.button("Testar Conexão")
-            if test_connection_button:
+            # Testar a conexão
+            if st.button("Testar Conexão"):
                 result = test_connection(connection_url)
-                if "Conexão bem-sucedida" in result:
+                if "sucesso" in result:
                     st.success(result)
                 else:
                     st.error(result)
 
-    # Rodapé
-    st.markdown("---")
-    st.markdown("Desenvolvido por SISCOF")
 
+if __name__ == "__main__":
+    # Autenticação
+    authenticator = stauth.Authenticate(
+        st.secrets['credentials'].to_dict(),
+        st.secrets['cookie']['name'],
+        st.secrets['cookie']['key'],
+        st.secrets['cookie']['expiry_days'],
+    )
 
-authenticator = Authenticate(
-    st.secrets['credentials'].to_dict(),
-    st.secrets['cookie']['name'],
-    st.secrets['cookie']['key'],
-    st.secrets['cookie']['expiry_days'],
-)
+    name, authentication_status, username = authenticator.login()
 
-name, authentication_status, username = authenticator.login()
-
-if authentication_status:
-    st.success(f'👋🙋‍♂️ Bem vindo *{name}*! Login feito com Successo!')
-    st.divider()
-    main()
-    authenticator.logout(location='sidebar')
-elif authentication_status is False:
-    st.error('❌🔄 Username ou password errado! Tente novamente.')
-elif authentication_status is None:
-    st.warning('🔑🔒 Escreva seu usuário e senha!')
+    if authentication_status:
+        st.success(f'👋🙋‍♂️ Bem-vindo *{name}*! Login feito com sucesso!')
+        st.divider()
+        main(username)  # Passa o username para a função main
+        authenticator.logout(location='sidebar')
+    elif authentication_status is False:
+        st.error('❌🔄 Username ou senha errados! Tente novamente.')
+    elif authentication_status is None:
+        st.warning('🔑🔒 Escreva seu usuário e senha!')
